@@ -1,0 +1,6 @@
+pandas
+numpy
+ta
+python-binance
+backtesting
+requests
