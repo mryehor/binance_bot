@@ -1,12 +1,17 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
-# Binance / API
-API_KEY = os.getenv("API_KEY") or "YOUR_REAL_KEY"
-API_SECRET = os.getenv("API_SECRET") or "YOUR_REAL_SECRET"
-DRY_RUN = True  # True = не отправляем реальные ордера
-LEVERAGE = 5
-RISK_FRACTION = 0.2
-INITIAL_CASH = 500.0
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID") or "0")
+DRY_RUN = os.getenv("DRY_RUN", "True").lower() == "true"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+print("TELEGRAM_TOKEN =", TELEGRAM_TOKEN)
+print("TELEGRAM_BOT_TOKEN =", TELEGRAM_BOT_TOKEN)
+print("TELEGRAM_CHAT_ID =", TELEGRAM_CHAT_ID)
 
 # Trading / timing
 TIMEFRAME = "5m"
@@ -27,9 +32,10 @@ BREAKOUT_PARAM_GRID = [{"period": p} for p in range(10, 31, 5)]
 USE_BBRSI = True
 USE_BREAKOUT = True
 
-# Telegram
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or ""
-TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID") or "-1002926519188")
+# Trading / risk
+INITIAL_CASH = 500.0
+LEVERAGE = 5
+RISK_FRACTION = 0.2
 
 # Logging / files
 LOG_FILE = "trades_testnet.log"
