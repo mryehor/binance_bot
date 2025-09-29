@@ -81,9 +81,9 @@ def check_position(symbol: str, price: float):
 
     # --- TP / SL ---
     if side == "BUY":
-        if price >= tp:
+        if tp is not None and price >= tp:
             reason = "TP"
-        elif price <= sl:
+        elif sl is not None and  price <= sl:
             reason = "SL"
     else:  # SELL
         if tp is not None and price <= tp:
