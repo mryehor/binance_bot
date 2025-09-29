@@ -291,7 +291,6 @@ async def main_async():
 # ========== ENTRY POINT ==========
 if __name__ == "__main__":
     print("Telegram bot started...")
-    app.run_polling()
     RESTART_DELAY = 10
     while True:
         try:
