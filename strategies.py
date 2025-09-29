@@ -1,7 +1,7 @@
 import pandas as pd
 from backtesting import Strategy
 from utils import ema200, bol_h, bol_l, rsi
-from position_manager import calculate_qty
+from pos_manager import calculate_qty
 from config import RISK_FRACTION
 
 def adjust_size_for_backtest(size):
