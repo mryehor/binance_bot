@@ -131,14 +131,14 @@ def check_and_close_position(symbol):
 
     # проверка TP/SL
     if side == "BUY":
-        if last_price >= tp:
+        if tp is not None and last_price >= tp:
             reason = "TP"
-        elif last_price <= sl:
+        elif sl is not None and last_price <= sl:
             reason = "SL"
     elif side == "SELL":
-        if last_price <= tp:
+        if tp is not None and last_price <= tp:
             reason = "TP"
-        elif last_price >= sl:
+        elif sl is not None and last_price >= sl:
             reason = "SL"
 
     if reason in ("TP", "SL"):
