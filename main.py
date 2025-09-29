@@ -16,22 +16,8 @@ from telegram_bot import send_telegram_message
 from backtesting.lib import FractionalBacktest
 from utils import bol_h, bol_l, rsi
 from pnl_utils import simulate_realtime_pnl
-from config import TELEGRAM_TOKEN 
-from control_panel import start, button
-from telegram.ext import  CommandHandler, CallbackQueryHandler, ApplicationBuilder # pyright: ignore[reportMissingImports]
-TRADING_PAUSED = False  # глобальный флаг паузы
 
-# ================= TELEGRAM =================
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button))
 
-async def start_telegram():
-    await app.initialize()
-    await app.start()
-    print("[INFO] Telegram бот запущен")
-    await app.updater.start_polling()
-    await app.updater.idle()
 
 # ========== OPTIMIZATION ==========
 def optimize_params_ws(symbol, strategy_class, param_grid):
@@ -290,8 +276,7 @@ async def main_async():
 
 # ========== ENTRY POINT ==========
 if __name__ == "__main__":
-    print("Telegram bot started...")
-    RESTART_DELAY = 10
+    RESTART_DELAY = 10  # секунд
     while True:
         try:
             asyncio.run(main_async())
