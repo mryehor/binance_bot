@@ -6,3 +6,4 @@ backtesting
 requests
 python-dotenv
 python-telegram-bot==20.5
+matplotlib
