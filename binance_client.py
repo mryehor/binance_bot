@@ -1,44 +1,46 @@
-import time
+import asyncio
 import pandas as pd
-from binance.client import Client
-from binance import ThreadedWebsocketManager
-from config import API_KEY, API_SECRET, TIMEFRAME
-from utils import clean_klines
-from data_store import klines_cache
+import time
 from typing import List
+from binance import AsyncClient, BinanceSocketManager
+from config import API_KEY, API_SECRET, TIMEFRAME, DRY_RUN
+from data_store import klines_cache
+from utils import bol_h, bol_l, rsi
+from pos_manager import get_open_position, open_position, close_position
+from telegram_bot import send_telegram_message
+from logger import log_position
+# ---------- fetch_historical_klines ----------
+async def fetch_historical_klines(symbol: str, interval="5m", limit=500):
+    if DRY_RUN:
+        df = pd.DataFrame([{"Open": 0, "High": 0, "Low": 0, "Close": 0, "Volume": 0}] * limit)
+        df.index = pd.date_range(end=pd.Timestamp.now(), periods=limit, freq=interval)
+        return df
 
-_client = Client(API_KEY, API_SECRET, testnet=False, requests_params={"timeout": 30})
-_twm = None
-
-def safe_request(func, *args, retries=3, delay=2, **kwargs):
-    for i in range(retries):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            print(f"Ошибка запроса: {e}, попытка {i+1}/{retries}")
-            time.sleep(delay)
-    raise
-
-def fetch_historical_klines(symbol: str, interval: str = TIMEFRAME, limit: int = 500) -> pd.DataFrame:
+    client = await AsyncClient.create(API_KEY, API_SECRET)
     try:
-        data = safe_request(_client.futures_klines, symbol=symbol, interval=interval, limit=limit)
-        df = pd.DataFrame(data, columns=[
-            "Open time", "Open", "High", "Low", "Close", "Volume", "Close time",
-            "Quote asset volume", "Number of trades", "Taker buy base",
-            "Taker buy quote", "Ignore"
+        raw = await client.futures_klines(symbol=symbol, interval=interval, limit=limit)
+        df = pd.DataFrame(raw, columns=[
+            "Open time", "Open", "High", "Low", "Close", "Volume",
+            "Close time", "Quote asset volume", "Number of trades",
+            "Taker buy base asset volume", "Taker buy quote asset volume", "Ignore"
         ])
-        df = clean_klines(df)
-        df.index = pd.to_datetime(df["Open time"], unit="ms", errors="coerce")
-        return df[["Open", "High", "Low", "Close", "Volume"]]
+        df["Open time"] = pd.to_datetime(df["Open time"], unit="ms")
+        df["Close time"] = pd.to_datetime(df["Close time"], unit="ms")
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = df[col].astype(float)
+        df.set_index("Close time", inplace=True)
+        return df
     except Exception as e:
-        print(f"Ошибка загрузки исторических свечей для {symbol}: {e}")
+        print(f"❌ Ошибка загрузки {symbol}: {e}")
         return pd.DataFrame()
+    finally:
+        await client.close_connection()
 
-# ========== websocket handler ==========
-def _handle_kline(msg):
+# ---------- WebSocket handler ----------
+async def handle_kline(msg):
     try:
-        symbol = msg["s"]
         k = msg["k"]
+        symbol = msg["s"]
         row = {
             "Open": float(k["o"]),
             "High": float(k["h"]),
@@ -47,6 +49,8 @@ def _handle_kline(msg):
             "Volume": float(k["v"]),
         }
         idx = pd.to_datetime(k["t"], unit="ms")
+
+        # Обновляем кэш свечей
         df = klines_cache.get(symbol)
         if df is None or df.empty:
             df = pd.DataFrame([row], index=[idx])
@@ -57,42 +61,104 @@ def _handle_kline(msg):
                 df = pd.concat([df, pd.DataFrame([row], index=[idx])])
                 df = df.tail(500)
         klines_cache[symbol] = df
+
+        # Проверка открытой позиции
+        pos = get_open_position(symbol)
+        price_last = row["Close"]
+        signal = None
+
+        # --- сигналы по индикаторам ---
+        if len(df) > 2:
+            lower = bol_l(df["Close"])[-1]
+            upper = bol_h(df["Close"])[-1]
+            rsi_val = rsi(df["Close"])[-1]
+            if df["Close"].iloc[-2] > lower and df["Close"].iloc[-1] < lower and rsi_val < 30:
+                signal = "BUY"
+            elif df["Close"].iloc[-2] < upper and df["Close"].iloc[-1] > upper and rsi_val > 70:
+                signal = "SELL"
+
+        # --- сигналы по пробою ---
+        period = 20
+        if len(df) > period + 2:
+            highest = df["High"].iloc[-period-1:-1].max()
+            lowest = df["Low"].iloc[-period-1:-1].min()
+            if price_last > highest:
+                signal = "BUY"
+            elif price_last < lowest:
+                signal = "SELL"
+
+        # --- если есть открытая позиция ---
+        if pos:
+            side = pos["side"]
+            entry = pos["entry"]
+
+            # проверка TP / SL и обратного сигнала через logger
+            if side == "BUY" and (signal == "SELL" or price_last <= pos["sl"] or price_last >= pos["tp"]):
+                reason = "Обратный сигнал/TP/SL достигнут"
+                close_position(symbol, price_last, reason=reason)
+                log_position("CLOSE", symbol, side, price_last, pos["qty"], 
+                             pnl=(price_last - entry) * pos["qty"], 
+                             tp=pos["tp"], sl=pos["sl"], 
+                             exit_reason=reason)
+            elif side == "SELL" and (signal == "BUY" or price_last >= pos["sl"] or price_last <= pos["tp"]):
+                reason = "Обратный сигнал/TP/SL достигнут"
+                close_position(symbol, price_last, reason=reason)
+                log_position("CLOSE", symbol, side, price_last, pos["qty"], 
+                             pnl=(entry - price_last) * pos["qty"], 
+                             tp=pos["tp"], sl=pos["sl"], 
+                             exit_reason=reason)
+            else:
+                print(f"⏳ Ожидаем: {symbol} {side}, entry={entry}, last={price_last}")
+
+        # --- если позиции нет и появился сигнал ---
+        elif signal:
+            pos_data = open_position(symbol, signal)
+            if pos_data:
+                log_position("OPEN", symbol, signal, pos_data["entry"], pos_data["qty"], 
+                             tp=pos_data["tp"], sl=pos_data["sl"], reason=f"Сигнал {signal}")
+
     except Exception as e:
         print("Ошибка в обработчике kline:", e)
 
-def start_websockets(symbols: List[str], interval: str = TIMEFRAME):
-    global _twm
-    if _twm:
-        return _twm
-    _twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
-    _twm.start()
-    for s in symbols:
-        try:
-            _twm.start_kline_socket(callback=_handle_kline, symbol=s, interval=interval)
-        except Exception as e:
-            print("Ошибка старта ws для", s, e)
-    return _twm
+# ---------- start websockets ----------
+async def start_websockets(symbols: List[str], interval: str = TIMEFRAME):
+    if DRY_RUN:
+        print("[DRY_RUN] WebSockets не запущены")
+        return
 
-def stop_websockets():
-    global _twm
-    if _twm:
-        try:
-            _twm.stop()
-        except Exception:
-            pass
-        _twm = None
+    client = await AsyncClient.create(API_KEY, API_SECRET)
+    bm = BinanceSocketManager(client)
+    sockets = [bm.kline_socket(symbol=s, interval=interval) for s in symbols]
 
-# ========== liquid tickers ==========
+    async def listen(sock):
+        async with sock as stream:
+            while True:
+                msg = await stream.recv()
+                await handle_kline(msg)
+
+    tasks = [asyncio.create_task(listen(sock)) for sock in sockets]
+    print("✅ WebSockets запущены для:", symbols)
+    await asyncio.gather(*tasks)
+
+# ---------- get_liquid_tickers ----------
 _liquid_tickers_cache = {"timestamp": 0, "tickers": []}
 
-def get_liquid_tickers(top_n=10, min_price=0.1, min_volume=1_000_000, max_spread_percent=5.0) -> List[str]:
+async def get_liquid_tickers(top_n=10, min_price=0.1, min_volume=1_000_000, max_spread_percent=5.0):
     global _liquid_tickers_cache
+    if DRY_RUN:
+        if not _liquid_tickers_cache["tickers"]:
+            _liquid_tickers_cache["tickers"] = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+        return _liquid_tickers_cache["tickers"]
+
+    client = await AsyncClient.create(API_KEY, API_SECRET)
     now = time.time()
     if now - _liquid_tickers_cache["timestamp"] < 3600:
+        await client.close_connection()
         return _liquid_tickers_cache["tickers"]
-    filtered = []
+
     try:
-        tickers = safe_request(_client.futures_ticker)
+        tickers = await client.futures_ticker()
+        filtered = []
         for t in tickers:
             symbol = t.get("symbol")
             if not symbol or "USDT" not in symbol:
@@ -102,17 +168,15 @@ def get_liquid_tickers(top_n=10, min_price=0.1, min_volume=1_000_000, max_spread
                 volume = float(t.get("quoteVolume", 0))
                 high = float(t.get("highPrice", 0))
                 low = float(t.get("lowPrice", 0))
-                if price <= 0:
-                    continue
                 spread_percent = ((high - low) / price) * 100 if price else 100
                 if price >= min_price and volume >= min_volume and spread_percent <= max_spread_percent:
                     filtered.append({"symbol": symbol, "volume": volume})
             except Exception:
                 continue
+
         filtered.sort(key=lambda x: x["volume"], reverse=True)
         top_symbols = [x["symbol"] for x in filtered[:top_n]]
         _liquid_tickers_cache = {"timestamp": now, "tickers": top_symbols}
         return top_symbols
-    except Exception as e:
-        print("Ошибка при фильтрации ликвидных монет:", e)
-        return []
+    finally:
+        await client.close_connection()
