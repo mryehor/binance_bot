@@ -120,12 +120,12 @@ def check_and_close_position(symbol):
     if trail_percent:
         if side == "BUY":
             new_sl = last_price * (1 - trail_percent / 100)
-            if new_sl > sl:
+            if sl is not None and new_sl > sl:
                 pos["sl"] = new_sl
                 reason = "Trailing"
         elif side == "SELL":
             new_sl = last_price * (1 + trail_percent / 100)
-            if new_sl < sl:
+            if sl is not None and new_sl < sl:
                 pos["sl"] = new_sl
                 reason = "Trailing"
 
