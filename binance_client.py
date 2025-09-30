@@ -93,22 +93,26 @@ async def handle_kline(msg):
             entry = pos["entry"]
 
             # проверка TP / SL и обратного сигнала через logger
-            if side == "BUY" and (signal == "SELL" or price_last <= pos["sl"] or price_last >= pos["tp"]):
+            if side == "BUY" and (signal == "SELL" 
+                                  or pos["sl"] is not None and  price_last <= pos["sl"] 
+                                  or pos["tp"] is not None and price_last >= pos["tp"]):
                 reason = "Обратный сигнал/TP/SL достигнут"
                 close_position(symbol, price_last, reason=reason)
                 log_position("CLOSE", symbol, side, price_last, pos["qty"], 
                              pnl=(price_last - entry) * pos["qty"], 
-                             tp=pos["tp"], sl=pos["sl"], 
+                             tp=pos.get("tp"), sl=pos.get("sl"), 
                              exit_reason=reason)
-            elif side == "SELL" and (signal == "BUY" or price_last >= pos["sl"] or price_last <= pos["tp"]):
+            elif side == "SELL" and (signal == "BUY" 
+                                    or pos["sl"] is not None and price_last >= pos["sl"]
+                                    or pos["tp"] is not None and price_last <= pos["tp"]):
                 reason = "Обратный сигнал/TP/SL достигнут"
                 close_position(symbol, price_last, reason=reason)
                 log_position("CLOSE", symbol, side, price_last, pos["qty"], 
                              pnl=(entry - price_last) * pos["qty"], 
-                             tp=pos["tp"], sl=pos["sl"], 
+                             tp=pos.get("tp"), sl=pos.get("sl"), 
                              exit_reason=reason)
             else:
-                print(f"⏳ Ожидаем: {symbol} {side}, entry={entry}, last={price_last}")
+                print(f"⏳ Ожидаем: {symbol} {side}, entry={entry}, last={price_last}, tp={pos.get('tp')}, sl={pos.get('sl')}")
 
         # --- если позиции нет и появился сигнал ---
         elif signal:
