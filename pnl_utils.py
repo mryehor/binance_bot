@@ -25,9 +25,9 @@ def simulate_realtime_pnl(symbol: str):
             max_price = max(max_price, price)
             if not trailing_active and price >= entry * (1 + trail_activation):
                 trailing_active = True
-            if price >= tp:
+            if tp is not None and price >= tp:
                 return (tp - entry) * qty
-            if price <= sl:
+            if sl is not None and price <= sl:
                 return (sl - entry) * qty
             if trailing_active and price < max_price * (1 - trail_percent):
                 pnl = (price - entry) * qty
@@ -40,9 +40,9 @@ def simulate_realtime_pnl(symbol: str):
             min_price = min(min_price, price)
             if not trailing_active and price <= entry * (1 - trail_activation):
                 trailing_active = True
-            if price <= tp:
+            if tp is not None and tp <= price:
                 return (entry - tp) * qty
-            if price >= sl:
+            if sl is not None and price >= sl:
                 return (entry - sl) * qty
             if trailing_active and price > min_price * (1 + trail_percent):
                 pnl = (entry - price) * qty
