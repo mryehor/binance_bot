@@ -31,8 +31,8 @@ def open_position(symbol: str, side: str, equity: float = None, risk_fraction: f
     qty = _quantize_to_step(qty, step=0.001)
 
     # тейк-профит и стоп-лосс
-    tp_price = price * (1.01 if side.upper() == "BUY" else 0.99)
-    sl_price = price * (0.98 if side.upper() == "BUY" else 1.02)
+    tp = price * (1.01 if side.upper() == "BUY" else 0.99)
+    sl = price * (0.98 if side.upper() == "BUY" else 1.02)
 
     # трейлинг стоп (0.5%)
     trail_percent = 0.5
@@ -41,15 +41,15 @@ def open_position(symbol: str, side: str, equity: float = None, risk_fraction: f
         "side": side.upper(),
         "qty": qty,
         "entry": price,
-        "tp": tp_price,
-        "sl": sl_price,
+        "tp": tp,
+        "sl": sl,
         "trail_percent": trail_percent,
         "status": "OPEN"
     }
 
     # сохраняем сделку в кеш
     user_data_cache.setdefault("positions", {})[symbol] = pos_dict
-    print(f"[DRY RUN] OPEN {symbol} {side} @ {price} TP={tp_price:.2f} SL={sl_price:.2f} Trail={trail_percent}%")
+    print(f"[DRY RUN] OPEN {symbol} {side} @ {price} TP={tp:.2f} SL={sl:.2f} Trail={trail_percent}%")
 
     return pos_dict
 
@@ -83,7 +83,7 @@ def check_position(symbol: str, price: float):
     if side == "BUY":
         if tp is not None and price >= tp:
             reason = "TP"
-        elif sl is not None and  price <= sl:
+        elif sl is not None and price <= sl:
             reason = "SL"
     else:  # SELL
         if tp is not None and price <= tp:
