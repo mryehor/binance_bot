@@ -245,6 +245,7 @@ async def main_async():
         min_volume=MIN_VOLUME,
         max_spread_percent=MAX_SPREAD_PERCENT
     )
+    symbols = [s for s in symbols if s  != "USDCUSDT"]
     if not symbols:
         print("Не получили ликвидные тикеры, ставим BTCUSDT в список")
         symbols = ["BTCUSDT"]
